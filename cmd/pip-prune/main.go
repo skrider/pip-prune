@@ -62,7 +62,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-
 	venvPath := filepath.Join(os.TempDir(), fmt.Sprintf("pip-prune-venv-ref-%s", hex.EncodeToString(h.Sum(nil))[:16]))
 	if _, err := os.Stat(venvPath); os.IsNotExist(err) {
 		// create the venv
@@ -86,7 +85,7 @@ func main() {
 	}
 
 	vvenv := venv.MakeVenv(venvPath, flag.Args())
-    fmt.Println(flag.Args())
+	fmt.Println(flag.Args())
 	// prime the venv with the reference path
 	vvenv.Unprune("")
 
@@ -95,39 +94,52 @@ func main() {
 	fringe := make([]string, 1)
 	fringe[0] = ""
 
-    depth := 0
+	depth := 0
 
 	for len(fringe) > 0 {
 		path := fringe[0]
-        depth = strings.Count(path, "/")
-        if depth > 2 {
-            break;
-        }
-        absPath := filepath.Join(refRoot, path)
+		depth = strings.Count(path, "/")
+		if depth > 1 {
+			break
+		}
+		absPath := filepath.Join(refRoot, path)
 		fringe = fringe[1:]
 		// attempt to prune the path
-		vvenv.Prune(path)
-        pass, err := vvenv.Test()
+		pass, err := vvenv.Test()
         if err != nil {
             log.Fatal(err)
         }
+        if !pass {
+            log.Fatal("invariant broken")
+        }
+        err = vvenv.Prune(path)
+        if err != nil {
+            log.Fatal(err)
+        }
+		pass, err = vvenv.Test()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-        if pass {
-            fmt.Println("Pruned", path)
-        } else {
-            fmt.Println("Failed to prune", path)
-            vvenv.Unprune(path)
-            
-            entries, err := os.ReadDir(absPath)
+		if pass {
+			fmt.Println("Pruned", path)
+		} else {
+			fmt.Println("Failed to prune", path)
+			err = vvenv.Unprune(path)
             if err != nil {
                 log.Fatal(err)
             }
-            for _, e := range entries {
-                relPath := filepath.Join(path, e.Name())
-                if e.IsDir() && !ignore.Match(relPath) {
-                    fringe = append(fringe, relPath)
-                }
-            }
-        }
+
+			entries, err := os.ReadDir(absPath)
+			if err != nil {
+				log.Fatal(err)
+			}
+			for _, e := range entries {
+				relPath := filepath.Join(path, e.Name())
+				if e.IsDir() && !ignore.Match(relPath) {
+					fringe = append(fringe, relPath)
+				}
+			}
+		}
 	}
 }

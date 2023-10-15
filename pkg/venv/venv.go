@@ -143,9 +143,13 @@ func (v *Venv) Prune(path string) error {
 	// find the first symlink
 	parentAcc := ""
 	parentDirs := strings.Split(path, "/")
+    if parentDirs[0] != "" {
+        parentDirs = append([]string{""}, parentDirs...)
+    }
 
 	// call expand all the way out to the parent
-	for _, dir := range parentDirs {
+	for _, dir := range parentDirs[:len(parentDirs)-1] {
+		parentAcc = filepath.Join(parentAcc, dir)
 		err := v.expand(parentAcc)
 		// ignore not symlink error
 		if err != NotSymlinkError {
@@ -153,7 +157,6 @@ func (v *Venv) Prune(path string) error {
 		}
 		// increment at the end to account for the base case
 		// where we prune the root directory itself
-		parentAcc = filepath.Join(parentAcc, dir)
 	}
 
 	// now rootPath is guarantueed to be a symlink, and we can remove
@@ -178,19 +181,14 @@ func (v *Venv) ReferencePath() string {
 
 // attempts to see if the given venv will work
 func (v *Venv) Test() (bool, error) {
-	args := make([]string, 1)
-	args[0] = "-u"
-	args = append(args, v.pythonCommandArgs...)
-    python := filepath.Join(v.rootPath, "bin", "python")
-	cmd := exec.Command(python, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	python := filepath.Join(v.rootPath, "bin", "python")
+	cmd := exec.Command(python, v.pythonCommandArgs...)
 	if err := cmd.Run(); err != nil {
-        if exitError, ok := err.(*exec.ExitError); ok {
-            return exitError.ExitCode() == 0, nil
-        } else {
-            return false, err
-        }
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return exitError.ExitCode() == 0, nil
+		} else {
+			return false, err
+		}
 	}
-    return true, nil
+	return true, nil
 }
