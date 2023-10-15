@@ -1,1 +1,6 @@
-__pycache__
+**__pycache__
+*.dist-info
+pip
+setuptools
+_distutils_hack
+
