@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -15,7 +14,6 @@ type Venv struct {
 	refLibPath        string
 	libPath           string
 	rootPath          string
-	pythonCommandArgs []string
 }
 
 func copyFile(src, dst string) error {
@@ -38,8 +36,9 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// one thread traverses the reference venv and enqueues potential states to try
-func MakeVenv(referencePath string, pythonCommandArgs []string) *Venv {
+// NB may need runtime.LockOSThread()
+
+func MakeVenv(referencePath string) *Venv {
 	root, err := os.MkdirTemp("", "pip-prune-venv-")
 	fmt.Printf("Creating proxy venv at %s\n", root)
 	if err != nil {
@@ -81,7 +80,6 @@ func MakeVenv(referencePath string, pythonCommandArgs []string) *Venv {
 	v := &Venv{
 		refLibPath:        filepath.Join(referencePath, "lib", python, "site-packages"),
 		libPath:           filepath.Join(root, "lib", python, "site-packages"),
-		pythonCommandArgs: pythonCommandArgs,
 		rootPath:          root,
 	}
 
@@ -179,16 +177,7 @@ func (v *Venv) ReferencePath() string {
 	return v.refLibPath
 }
 
-// attempts to see if the given venv will work
-func (v *Venv) Test() (bool, error) {
-	python := filepath.Join(v.rootPath, "bin", "python")
-	cmd := exec.Command(python, v.pythonCommandArgs...)
-	if err := cmd.Run(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			return exitError.ExitCode() == 0, nil
-		} else {
-			return false, err
-		}
-	}
-	return true, nil
+func (v *Venv) PythonInterpreterPath() string {
+    return filepath.Join(v.rootPath, "bin", "python");
 }
+

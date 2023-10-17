@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/skrider/python-image-pruner/pkg/command"
 	"github.com/skrider/python-image-pruner/pkg/ignore"
 	"github.com/skrider/python-image-pruner/pkg/venv"
 )
@@ -84,7 +85,7 @@ func main() {
 		fmt.Println("Using existing venv at", venvPath)
 	}
 
-	vvenv := venv.MakeVenv(venvPath, flag.Args())
+	vvenv := venv.MakeVenv(venvPath)
 	fmt.Println(flag.Args())
 	// prime the venv with the reference path
 	vvenv.Unprune("")
@@ -96,6 +97,8 @@ func main() {
 
 	depth := 0
 
+    cmd := command.MakeCommand(flag.Args())
+
 	for len(fringe) > 0 {
 		path := fringe[0]
 		depth = strings.Count(path, "/")
@@ -105,25 +108,26 @@ func main() {
 		absPath := filepath.Join(refRoot, path)
 		fringe = fringe[1:]
 		// attempt to prune the path
-		pass, err := vvenv.Test()
+		ok, err := cmd.Run(vvenv)
         if err != nil {
             log.Fatal(err)
         }
-        if !pass {
+        if !ok {
             log.Fatal("invariant broken")
         }
         err = vvenv.Prune(path)
         if err != nil {
             log.Fatal(err)
         }
-		pass, err = vvenv.Test()
+		ok, err = cmd.Run(vvenv)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if pass {
+		if ok {
 			fmt.Println("Pruned", path)
 		} else {
+            // step further into the directory tree
 			fmt.Println("Failed to prune", path)
 			err = vvenv.Unprune(path)
             if err != nil {
@@ -142,4 +146,9 @@ func main() {
 			}
 		}
 	}
+
+    ok, err := cmd.Run(vvenv)
+    if !ok {
+        log.Fatal("not ok at termination")
+    }
 }
