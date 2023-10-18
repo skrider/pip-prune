@@ -1,3 +1,11 @@
 # python-image-pruner
 
-Traverses a python image and uses a greedy backoff algorithm + symlinks + a venv to eliminate dead code. Uses a smoke test to determine whether the code is actually imported. Reads the python backtrace to get an idea of the layer that is causing the error.
+Traverses a pip install and uses a greedy backoff algorithm + overlay fs + a venv to eliminate dead code. Uses a user-provided smoke test to determine whether the code is actually imported.
+
+## Roadmap
+
+- [x] Brute force testing modules one at a time
+- [ ] Brute force testing multiple modules in parallel
+- [ ] Using ptrace to see what files actually get opened by the python process
+- [ ] Symbol-level pruning using tree-sitter to parse and replace files with only their top-level symbols
+
