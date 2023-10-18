@@ -3,17 +3,21 @@ package venv
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // grow the "fringe" outwards
 
 type Venv struct {
-	refLibPath        string
-	libPath           string
-	rootPath          string
+	lower      string
+	merged     string
+	upper      string
+	workdir    string
+	pythonName string
 }
 
 func copyFile(src, dst string) error {
@@ -38,146 +42,107 @@ func copyFile(src, dst string) error {
 
 // NB may need runtime.LockOSThread()
 
-func MakeVenv(referencePath string) *Venv {
-	root, err := os.MkdirTemp("", "pip-prune-venv-")
-	fmt.Printf("Creating proxy venv at %s\n", root)
-	if err != nil {
-		return nil
-	}
+func MakeVenv(refPath string) *Venv {
+	v := &Venv{lower: refPath}
+	var err error
 
-	// setup redundant symlinks
-	entries, err := os.ReadDir(referencePath)
+	root, err := os.MkdirTemp("", "pip-prune-venv-")
 	if err != nil {
 		return nil
 	}
-	for _, e := range entries {
-		refPath := filepath.Join(referencePath, e.Name())
-		rootPath := filepath.Join(root, e.Name())
-		if e.Name() != "lib" && e.Name() != "pyvenv.cfg" && e.Name() != "lib64" {
-			err = os.Symlink(refPath, rootPath)
-		} else if e.Name() == "pyvenv.cfg" {
-			// copy pyenv.cfg to root
-			err = copyFile(refPath, rootPath)
+	fmt.Printf("Creating proxy venv at %s\n", root)
+
+	dirs := make([]string, 3)
+	for i, dir := range []string{"upper", "workdir", "merged"} {
+		dirs[i] = filepath.Join(root, dir)
+	}
+	for _, dir := range dirs {
+		err = os.Mkdir(dir, 0777)
+		if err != nil {
+			log.Printf("Failed to create %s: %s\n", dir, err)
+			return nil
 		}
 	}
+	v.upper = dirs[0]
+	v.workdir = dirs[1]
+	v.merged = dirs[2]
 
-	// setup lib
-	err = os.Mkdir(filepath.Join(root, "lib"), 0777)
+	err = v.mount()
 	if err != nil {
-		return nil
-	}
-	err = os.Symlink(filepath.Join(root, "lib"), filepath.Join(root, "lib64"))
-	if err != nil {
-		return nil
-	}
-	entries, err = os.ReadDir(filepath.Join(referencePath, "lib"))
-	python := entries[0].Name()
-	err = os.Mkdir(filepath.Join(root, "lib", python), 0777)
-	if err != nil {
+		log.Printf("Failed to mount overlay: %s\n", err)
 		return nil
 	}
 
-	v := &Venv{
-		refLibPath:        filepath.Join(referencePath, "lib", python, "site-packages"),
-		libPath:           filepath.Join(root, "lib", python, "site-packages"),
-		rootPath:          root,
+	entries, err := os.ReadDir(filepath.Join(refPath, "lib"))
+	if err != nil {
+		log.Printf("Failed to read lib dir: %s\n", err)
+		return nil
 	}
-
-	// importantly, do not create site-packages
+	v.pythonName = entries[0].Name()
 
 	return v
 }
 
-func DestroyVenv(v *Venv) error {
-	return os.RemoveAll(v.libPath)
+func (v *Venv) mount() error {
+	options := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", v.lower, v.upper, v.workdir)
+	return unix.Mount("overlay", v.merged, "overlay", 0, options)
 }
 
-var NotSymlinkError error
+func (v *Venv) umount() error {
+	return unix.Unmount(v.merged, 0)
+}
 
-// if the path is a symlink, then replaces with a dir and symlinks
-// all contents
-func (v *Venv) expand(path string) error {
-	rootPath := filepath.Join(v.libPath, path)
-	refPath := filepath.Join(v.refLibPath, path)
-
-	stats, err := os.Lstat(rootPath)
+func (v *Venv) Destroy() {
+	// unmount merged
+	err := v.umount()
 	if err != nil {
-		return err
+		log.Printf("Failed to unmount merged: %s\n", err)
 	}
-	if stats.Mode()&os.ModeSymlink == 0 {
-		return NotSymlinkError
-	}
-	err = os.Remove(rootPath)
+	// remove root
+	err = os.RemoveAll(v.merged)
 	if err != nil {
-		return err
+		log.Printf("Failed to remove root: %s\n", err)
 	}
-	err = os.Mkdir(rootPath, 0777)
-	if err != nil {
-		return err
-	}
-
-	// create all entries as symlinks to reference dir
-	entries, err := os.ReadDir(refPath)
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		from := filepath.Join(refPath, e.Name())
-		to := filepath.Join(rootPath, e.Name())
-		err := os.Symlink(from, to)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // attempt to remove the provided path from the venv.
 // path is provided relative to root.
 func (v *Venv) Prune(path string) error {
-	rootPath := filepath.Join(v.libPath, path)
-
-	// find the first symlink
-	parentAcc := ""
-	parentDirs := strings.Split(path, "/")
-    if parentDirs[0] != "" {
-        parentDirs = append([]string{""}, parentDirs...)
-    }
-
-	// call expand all the way out to the parent
-	for _, dir := range parentDirs[:len(parentDirs)-1] {
-		parentAcc = filepath.Join(parentAcc, dir)
-		err := v.expand(parentAcc)
-		// ignore not symlink error
-		if err != NotSymlinkError {
-			return err
-		}
-		// increment at the end to account for the base case
-		// where we prune the root directory itself
-	}
-
-	// now rootPath is guarantueed to be a symlink, and we can remove
-	// it straight up
-	err := os.Remove(rootPath)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return os.RemoveAll(v.resolveLower(path))
 }
 
 // unprune re-inserts path into the venv tree. Only pruned
 // paths will be unpruned, so this is simple and safe to do.
 func (v *Venv) Unprune(path string) error {
-	return os.Symlink(filepath.Join(v.refLibPath, path), filepath.Join(v.libPath, path))
+	err := v.umount()
+	if err != nil {
+		return err
+	}
+
+	err = os.Remove(v.resolveUpper(path))
+	if err != nil {
+		return err
+	}
+
+	return v.mount()
 }
 
 func (v *Venv) ReferencePath() string {
-	return v.refLibPath
+	return v.resolveLower("")
+}
+
+func (v *Venv) resolveLower(path string) string {
+	return filepath.Join(v.merged, "lib", v.pythonName, "site-packages", path)
+}
+
+func (v *Venv) resolveRef(path string) string {
+	return filepath.Join(v.lower, "lib", v.pythonName, "site-packages", path)
+}
+
+func (v *Venv) resolveUpper(path string) string {
+	return filepath.Join(v.upper, "lib", v.pythonName, "site-packages", path)
 }
 
 func (v *Venv) PythonInterpreterPath() string {
-    return filepath.Join(v.rootPath, "bin", "python");
+	return filepath.Join(v.merged, "bin", "python")
 }
-

@@ -61,14 +61,14 @@ func (c *Command) Run(v *venv.Venv) (bool, error) {
 	}
 
 	err = cmd.Run()
-    if err != nil {
-        if exitError, ok := err.(*exec.ExitError); ok {
-            return exitError.ExitCode() == 0, nil
-        } else {
-            return false, err
-        }
-    }
-    return true, nil
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return exitError.ExitCode() == 0, nil
+		} else {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (c *Command) String() string {

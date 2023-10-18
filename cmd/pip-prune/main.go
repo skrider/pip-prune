@@ -40,10 +40,14 @@ func printUsage() {
 
 var (
 	requirementsArg string
+	cleanupArg      bool
+	depthArg        int
 )
 
 func init() {
 	flag.StringVar(&requirementsArg, "requirements", "requirements.txt", "requirements file to use")
+	flag.BoolVar(&cleanupArg, "cleanup", true, "cleanup temporary venvs")
+	flag.IntVar(&depthArg, "depth", 1, "max depth to search")
 	flag.Usage = printUsage
 }
 
@@ -86,9 +90,10 @@ func main() {
 	}
 
 	vvenv := venv.MakeVenv(venvPath)
+	if cleanupArg {
+		defer vvenv.Destroy()
+	}
 	fmt.Println(flag.Args())
-	// prime the venv with the reference path
-	vvenv.Unprune("")
 
 	refRoot := vvenv.ReferencePath()
 
@@ -97,42 +102,35 @@ func main() {
 
 	depth := 0
 
-    cmd := command.MakeCommand(flag.Args())
+	cmd := command.MakeCommand(flag.Args())
 
 	for len(fringe) > 0 {
 		path := fringe[0]
 		depth = strings.Count(path, "/")
-		if depth > 1 {
+		if depth > depthArg {
 			break
 		}
 		absPath := filepath.Join(refRoot, path)
 		fringe = fringe[1:]
 		// attempt to prune the path
+		err = vvenv.Prune(path)
+		if err != nil {
+			log.Fatal(err)
+		}
 		ok, err := cmd.Run(vvenv)
-        if err != nil {
-            log.Fatal(err)
-        }
-        if !ok {
-            log.Fatal("invariant broken")
-        }
-        err = vvenv.Prune(path)
-        if err != nil {
-            log.Fatal(err)
-        }
-		ok, err = cmd.Run(vvenv)
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		if ok {
-			fmt.Println("Pruned", path)
+			fmt.Println("Pruned path:", path)
 		} else {
-            // step further into the directory tree
-			fmt.Println("Failed to prune", path)
+			// step further into the directory tree
+			fmt.Println("Failed to prune:", path)
 			err = vvenv.Unprune(path)
-            if err != nil {
-                log.Fatal(err)
-            }
+			if err != nil {
+				log.Fatal(err)
+			}
 
 			entries, err := os.ReadDir(absPath)
 			if err != nil {
@@ -147,8 +145,8 @@ func main() {
 		}
 	}
 
-    ok, err := cmd.Run(vvenv)
-    if !ok {
-        log.Fatal("not ok at termination")
-    }
+	ok, err := cmd.Run(vvenv)
+	if !ok {
+		log.Fatal("not ok at termination")
+	}
 }
