@@ -38,13 +38,17 @@ func printUsage() {
 }
 
 var (
-	cleanupArg bool
+	nocleanupArg bool
+	absoluteArg bool
 	depthArg   int
+	outputArg  string
 )
 
 func init() {
-	flag.BoolVar(&cleanupArg, "cleanup", true, "cleanup temporary venvs")
+	flag.BoolVar(&nocleanupArg, "nocleanup", false, "do not cleanup temporary venvs")
+	flag.BoolVar(&absoluteArg, "absolute", false, "output absolute path")
 	flag.IntVar(&depthArg, "depth", 1, "max depth to search")
+	flag.StringVar(&outputArg, "output", "prune.txt", "output file")
 	flag.Usage = printUsage
 }
 
@@ -72,26 +76,58 @@ func main() {
 	}
 
 	vvenv := venv.MakeVenv(venvPath)
-	if cleanupArg {
+	if vvenv == nil {
+		log.Fatal("failed to create venv")
+	}
+	if !nocleanupArg {
 		defer vvenv.Destroy()
 	}
-	fmt.Println(flag.Args())
+	log.Printf("Created venv. Initial size: %s", vvenv.SizeH(""))
 
+	vvenv.PurgePycache()
 	cmd := command.MakeCommand(pythonArgs)
 
-    ok, tracedFiles, err := cmd.TraceFiles(vvenv)
+	ok, tracedFiles, err := cmd.TraceFiles(vvenv)
+	if err != nil {
+		log.Fatal(err)
+	} else if !ok {
+		log.Fatal("command did not work first try")
+	}
+
+	log.Println("removing unused files")
+
+    prunedFiles := make([]string, 0)
+	for _, f := range vvenv.Contents("") {
+		if _, ok := tracedFiles[f]; !ok && !ignore.Match(f) {
+			err := vvenv.Prune(f)
+            prunedFiles = append(prunedFiles, f)
+			log.Printf("pruned: %s", f)
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	}
+
+	vvenv.PurgePycache()
+	ok, err = cmd.Run(vvenv)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !ok {
+		cmd.Dump()
+		log.Fatal("command did not work after pruning. Try ignoring files.")
+	}
+
+	log.Printf("Pruning successful. Final size: %s", vvenv.SizeH(""))
+
+    // write out the pruned files
+    f, err := os.Create(outputArg)
     if err != nil {
         log.Fatal(err)
-    } else if !ok {
-        log.Fatal("command did not work first try")
     }
-
-    for k := range tracedFiles {
-        fmt.Println(k)
-    }
-
-    for _, f := range vvenv.Contents("") {
-        fmt.Println(f)
+    defer f.Close()
+    for _, p := range prunedFiles {
+        fmt.Fprintf(f, "%s\n", p)
     }
 }
 
@@ -107,8 +143,7 @@ func initRefVenv(pipArgs []string) (string, error) {
 				io.Copy(h, file)
 				file.Close()
 			} else {
-				r := strings.NewReader(a)
-				io.Copy(h, r)
+                fmt.Fprintf(h, "%s", a)
 			}
 		}
 	}

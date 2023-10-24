@@ -3,4 +3,7 @@
 pip
 setuptools
 _distutils_hack
+numpy.libs
+**.so
+**.so.*
 

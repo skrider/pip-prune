@@ -3,6 +3,7 @@ package command
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -133,4 +134,31 @@ func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
 
 func (c *Command) String() string {
 	return fmt.Sprintf("python %s", strings.Join(c.args, " "))
+}
+
+func (c *Command) dumpLogs(i int) {
+    if (i < c.n) {
+        return
+    }
+
+	stderrPath := filepath.Join(c.logDir, fmt.Sprintf("stderr-%d.log", i))
+    stderrFile, err := os.Open(stderrPath)
+    defer stderrFile.Close()
+    if err != nil {
+        log.Printf("command %s failed to open stderr at %s\n", c.String(), stderrPath)
+    }
+
+	stdoutPath := filepath.Join(c.logDir, fmt.Sprintf("stdout-%d.log", i))
+    stdoutFile, err := os.Open(stdoutPath)
+    defer stdoutFile.Close()
+    if err != nil {
+        log.Printf("command %s failed to open stderr at %s\n", c.String(), stdoutPath)
+    }
+
+    io.Copy(os.Stdout, stderrFile)
+    io.Copy(os.Stdout, stdoutFile)
+}
+
+func (c *Command) Dump() {
+    c.dumpLogs(c.n - 1)
 }

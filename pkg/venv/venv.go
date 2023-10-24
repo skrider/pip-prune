@@ -6,20 +6,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 // grow the "fringe" outwards
 
 type Venv struct {
+    // TODO replace with an enum specifying level
 	lower      string
 	merged     string
 	upper      string
 	workdir    string
 	pythonName string
 }
-
-// NB may need runtime.LockOSThread()
 
 func MakeVenv(refPath string) *Venv {
 	v := &Venv{lower: refPath}
@@ -66,8 +66,6 @@ func (v *Venv) mount() error {
     args := make([]string, 0)
     args = append(args, "-o")
     args = append(args, fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", v.lower, v.upper, v.workdir))
-    args = append(args, "-o")
-    args = append(args, "allow_")
     args = append(args, v.merged)
     
     cmd := exec.Command("fuse-overlayfs", args...)
@@ -95,10 +93,26 @@ func (v *Venv) Destroy() {
 	}
 }
 
+const PYCACHE_RE = "__pycache__$"
+
+func (v *Venv) PurgePycache() {
+    re, _ := regexp.Compile(PYCACHE_RE)
+    files := v.Contents("")
+    for _, f := range files {
+        if re.MatchString(f) {
+            path := v.resolveMerged(f)
+            err := os.RemoveAll(path)
+            if err != nil {
+                panic(err)
+            }
+        }
+    }
+}
+
 // attempt to remove the provided path from the venv.
 // path is provided relative to root.
 func (v *Venv) Prune(path string) error {
-    if v.isPruned(path) {
+    if _, err := os.Stat(v.resolveMerged(path)); os.IsNotExist(err) {
         return nil
     }
 	return os.RemoveAll(v.resolveMerged(path))
@@ -109,6 +123,9 @@ func (v *Venv) Contents(path string) []string {
     files := make([]string, 0)
 
     walkFunc := func(path string, info os.FileInfo, err error) error {
+        if info.IsDir() {
+            return nil
+        }
         relative := strings.TrimPrefix(path, v.LibRoot())
         if relative != path && relative != "" {
             files = append(files, relative[1:])
@@ -119,21 +136,6 @@ func (v *Venv) Contents(path string) []string {
     filepath.Walk(v.resolveMerged(path), walkFunc)
 
     return files
-}
-
-func (v *Venv) isPruned(p string) bool {
-    subdirs := strings.Split(p, "/")[:len(p)-1]
-    for i := 0; i < len(subdirs); i++ {
-        fullPath := filepath.Join(subdirs[:i]...)
-        if stats, err := os.Stat(v.resolveUpper(fullPath)); err != nil {
-            // check if dir - otherwise it will be a character special file
-            // marking the dir is removed in the upper layer
-            if !stats.IsDir() {
-                return true
-            }
-        }
-    }
-    return false
 }
 
 // unprune re-inserts path into the venv tree. Only pruned
@@ -152,6 +154,18 @@ func (v *Venv) Unprune(paths ...string) error {
     }
 
 	return v.mount()
+}
+
+func (v *Venv) SizeH(p string) string {
+    // TODO write a generic traverse function for a venv and use it for this and for
+    // contents
+    cmd := exec.Command("du", "--human-readable", "--summarize", v.resolveMerged(p))
+    out, err := cmd.Output()
+    if err != nil {
+        panic(err)
+    }
+    parts := strings.Split(string(out), "\t")
+    return parts[0]
 }
 
 func (v *Venv) LibRoot() string {
