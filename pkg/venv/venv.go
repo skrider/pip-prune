@@ -2,12 +2,10 @@ package venv
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
-
-	"golang.org/x/sys/unix"
 )
 
 // grow the "fringe" outwards
@@ -18,26 +16,6 @@ type Venv struct {
 	upper      string
 	workdir    string
 	pythonName string
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // NB may need runtime.LockOSThread()
@@ -84,12 +62,23 @@ func MakeVenv(refPath string) *Venv {
 }
 
 func (v *Venv) mount() error {
-	options := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", v.lower, v.upper, v.workdir)
-	return unix.Mount("overlay", v.merged, "overlay", 0, options)
+    args := make([]string, 0)
+    args = append(args, "-o")
+    args = append(args, fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", v.lower, v.upper, v.workdir))
+    args = append(args, "-o")
+    args = append(args, "allow_")
+    args = append(args, v.merged)
+    
+    cmd := exec.Command("fuse-overlayfs", args...)
+    return cmd.Run()
 }
 
 func (v *Venv) umount() error {
-	return unix.Unmount(v.merged, 0)
+    args := make([]string, 0)
+    args = append(args, v.merged)
+
+    cmd := exec.Command("umount", args...)
+    return cmd.Run()
 }
 
 func (v *Venv) Destroy() {
