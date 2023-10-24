@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -69,6 +70,63 @@ func (c *Command) Run(v *venv.Venv) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
+	var err error
+    files := make(map[string]bool, 0)
+
+	c.mu.Lock()
+	n := c.n
+	c.n += 1
+	c.mu.Unlock()
+
+	stderrPath := filepath.Join(c.logDir, fmt.Sprintf("stderr-%d.log", n))
+	stdoutPath := filepath.Join(c.logDir, fmt.Sprintf("stdout-%d.log", n))
+	stracePath := filepath.Join(c.logDir, fmt.Sprintf("strace-%d.log", n))
+
+    args := make([]string, 0)
+    args = append(args, "--output", stracePath)
+    args = append(args, "--trace", "%file")
+    args = append(args, v.PythonInterpreterPath())
+    args = append(args, c.args...)
+
+	cmd := exec.Command("strace", args...)
+	cmd.Env = os.Environ()
+
+	cmd.Stderr, err = os.Create(stderrPath)
+	if err != nil {
+		log.Printf("error creating %s for %s: %s", stderrPath, c.String(), err)
+		return false, files, err
+	}
+
+	cmd.Stdout, err = os.Create(stdoutPath)
+	if err != nil {
+		log.Printf("error creating %s for %s: %s", stdoutPath, c.String(), err)
+		return false, files, err
+	}
+
+	err = cmd.Run()
+
+    f, err := os.Open(stracePath)
+    defer f.Close()
+    s := bufio.NewScanner(f)
+    for s.Scan() {
+        line := s.Text()
+        parts := strings.Split(line, "\"")
+        if len(parts) > 1 {
+            files[parts[1]] = true
+        }
+    }
+
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return exitError.ExitCode() == 0, files, nil
+		} else {
+			return false, files, err
+		}
+	}
+	return true, files, nil
 }
 
 func (c *Command) String() string {
