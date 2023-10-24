@@ -38,9 +38,9 @@ func printUsage() {
 
 var (
 	nocleanupArg bool
-	absoluteArg bool
-	depthArg   int
-	outputArg  string
+	absoluteArg  bool
+	depthArg     int
+	outputArg    string
 )
 
 func init() {
@@ -86,8 +86,10 @@ func main() {
 	vvenv.PurgePycache()
 	cmd := command.MakeCommand(pythonArgs)
 
+	log.Printf("Tracing file open calls")
 	ok, tracedFiles, err := cmd.TraceFiles(vvenv)
 	if err != nil {
+		cmd.Dump()
 		log.Fatal(err)
 	} else if !ok {
 		log.Fatal("command did not work first try")
@@ -95,11 +97,11 @@ func main() {
 
 	log.Println("removing unused files")
 
-    prunedFiles := make([]string, 0)
+	prunedFiles := make([]string, 0)
 	for _, f := range vvenv.Contents("") {
 		if _, ok := tracedFiles[f]; !ok && !ignore.Match(f) {
 			err := vvenv.Prune(f)
-            prunedFiles = append(prunedFiles, f)
+			prunedFiles = append(prunedFiles, f)
 			if err != nil {
 				log.Println(err)
 			}
@@ -118,15 +120,15 @@ func main() {
 
 	log.Printf("Pruning successful. Final size: %s", vvenv.SizeH(""))
 
-    // write out the pruned files
-    f, err := os.Create(outputArg)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer f.Close()
-    for _, p := range prunedFiles {
-        fmt.Fprintf(f, "%s\n", p)
-    }
+	// write out the pruned files
+	f, err := os.Create(outputArg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+	for _, p := range prunedFiles {
+		fmt.Fprintf(f, "%s\n", p)
+	}
 
 	log.Printf("Pruned files written to %s", outputArg)
 }
@@ -143,7 +145,7 @@ func initRefVenv(pipArgs []string) (string, error) {
 				io.Copy(h, file)
 				file.Close()
 			} else {
-                fmt.Fprintf(h, "%s", a)
+				fmt.Fprintf(h, "%s", a)
 			}
 		}
 	}

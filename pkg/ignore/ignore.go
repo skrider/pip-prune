@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"flag"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -14,11 +15,13 @@ import (
 //go:embed default.txt
 var DefaultIgnores string
 var ignoreArg string
+var ignoreLibsArg bool
 var patternMatcher *pm.PatternMatcher
 var mu sync.Mutex
 
 func init() {
 	flag.StringVar(&ignoreArg, "ignore", "", "ignore file to use")
+	flag.BoolVar(&ignoreLibsArg, "ignore-libs", false, "ignore file to use")
 }
 
 func InitIgnores() {
@@ -49,6 +52,8 @@ func InitIgnores() {
 	}
 }
 
+var staticRe = regexp.MustCompile("\\.so[^/]*$")
+
 func Match(path string) bool {
 	mu.Lock()
 	defer mu.Unlock()
@@ -57,5 +62,6 @@ func Match(path string) bool {
 	if err != nil {
 		panic(err)
 	}
-	return matches
+
+	return matches || (ignoreLibsArg && staticRe.MatchString(path))
 }

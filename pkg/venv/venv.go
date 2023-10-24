@@ -13,7 +13,7 @@ import (
 // grow the "fringe" outwards
 
 type Venv struct {
-    // TODO replace with an enum specifying level
+	// TODO replace with an enum specifying level
 	lower      string
 	merged     string
 	upper      string
@@ -63,21 +63,21 @@ func MakeVenv(refPath string) *Venv {
 }
 
 func (v *Venv) mount() error {
-    args := make([]string, 0)
-    args = append(args, "-o")
-    args = append(args, fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", v.lower, v.upper, v.workdir))
-    args = append(args, v.merged)
-    
-    cmd := exec.Command("fuse-overlayfs", args...)
-    return cmd.Run()
+	args := make([]string, 0)
+	args = append(args, "-o")
+	args = append(args, fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", v.lower, v.upper, v.workdir))
+	args = append(args, v.merged)
+
+	cmd := exec.Command("fuse-overlayfs", args...)
+	return cmd.Run()
 }
 
 func (v *Venv) umount() error {
-    args := make([]string, 0)
-    args = append(args, v.merged)
+	args := make([]string, 0)
+	args = append(args, v.merged)
 
-    cmd := exec.Command("umount", args...)
-    return cmd.Run()
+	cmd := exec.Command("umount", args...)
+	return cmd.Run()
 }
 
 func (v *Venv) Destroy() {
@@ -96,46 +96,46 @@ func (v *Venv) Destroy() {
 const PYCACHE_RE = "__pycache__$"
 
 func (v *Venv) PurgePycache() {
-    re, _ := regexp.Compile(PYCACHE_RE)
-    files := v.Contents("")
-    for _, f := range files {
-        if re.MatchString(f) {
-            path := v.resolveMerged(f)
-            err := os.RemoveAll(path)
-            if err != nil {
-                panic(err)
-            }
-        }
-    }
+	re, _ := regexp.Compile(PYCACHE_RE)
+	files := v.Contents("")
+	for _, f := range files {
+		if re.MatchString(f) {
+			path := v.resolveMerged(f)
+			err := os.RemoveAll(path)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 }
 
 // attempt to remove the provided path from the venv.
 // path is provided relative to root.
 func (v *Venv) Prune(path string) error {
-    if _, err := os.Stat(v.resolveMerged(path)); os.IsNotExist(err) {
-        return nil
-    }
+	if _, err := os.Stat(v.resolveMerged(path)); os.IsNotExist(err) {
+		return nil
+	}
 	return os.RemoveAll(v.resolveMerged(path))
 }
 
 // prints all files rooted at path
 func (v *Venv) Contents(path string) []string {
-    files := make([]string, 0)
+	files := make([]string, 0)
 
-    walkFunc := func(path string, info os.FileInfo, err error) error {
-        if info.IsDir() {
-            return nil
-        }
-        relative := strings.TrimPrefix(path, v.LibRoot())
-        if relative != path && relative != "" {
-            files = append(files, relative[1:])
-        }
-        return nil
-    }
+	walkFunc := func(path string, info os.FileInfo, err error) error {
+		if info.IsDir() {
+			return nil
+		}
+		relative := strings.TrimPrefix(path, v.LibRoot())
+		if relative != path && relative != "" {
+			files = append(files, relative[1:])
+		}
+		return nil
+	}
 
-    filepath.Walk(v.resolveMerged(path), walkFunc)
+	filepath.Walk(v.resolveMerged(path), walkFunc)
 
-    return files
+	return files
 }
 
 // unprune re-inserts path into the venv tree. Only pruned
@@ -146,30 +146,30 @@ func (v *Venv) Unprune(paths ...string) error {
 		return err
 	}
 
-    for _, p := range paths {
-	    err = os.Remove(v.resolveUpper(p))
-        if err != nil {
-            log.Printf("Failed to remove %s: %s\n", v.resolveUpper(p), err)
-        }
-    }
+	for _, p := range paths {
+		err = os.Remove(v.resolveUpper(p))
+		if err != nil {
+			log.Printf("Failed to remove %s: %s\n", v.resolveUpper(p), err)
+		}
+	}
 
 	return v.mount()
 }
 
 func (v *Venv) SizeH(p string) string {
-    // TODO write a generic traverse function for a venv and use it for this and for
-    // contents
-    cmd := exec.Command("du", "--human-readable", "--summarize", v.resolveMerged(p))
-    out, err := cmd.Output()
-    if err != nil {
-        panic(err)
-    }
-    parts := strings.Split(string(out), "\t")
-    return parts[0]
+	// TODO write a generic traverse function for a venv and use it for this and for
+	// contents
+	cmd := exec.Command("du", "--human-readable", "--summarize", v.resolveMerged(p))
+	out, err := cmd.Output()
+	if err != nil {
+		panic(err)
+	}
+	parts := strings.Split(string(out), "\t")
+	return parts[0]
 }
 
 func (v *Venv) LibRoot() string {
-    return filepath.Join(v.merged, "lib", v.pythonName, "site-packages")
+	return filepath.Join(v.merged, "lib", v.pythonName, "site-packages")
 }
 
 func (v *Venv) resolveMerged(path string) string {
