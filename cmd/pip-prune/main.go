@@ -79,12 +79,20 @@ func main() {
 
 	cmd := command.MakeCommand(pythonArgs)
 
-	cmd.TraceFiles(vvenv)
+    ok, tracedFiles, err := cmd.TraceFiles(vvenv)
+    if err != nil {
+        log.Fatal(err)
+    } else if !ok {
+        log.Fatal("command did not work first try")
+    }
 
-	ok, err := cmd.Run(vvenv)
-	if !ok {
-		log.Fatal("not ok at termination")
-	}
+    for k := range tracedFiles {
+        fmt.Println(k)
+    }
+
+    for _, f := range vvenv.Contents("") {
+        fmt.Println(f)
+    }
 }
 
 func initRefVenv(pipArgs []string) (string, error) {

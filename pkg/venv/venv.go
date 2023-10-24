@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // grow the "fringe" outwards
@@ -97,30 +98,67 @@ func (v *Venv) Destroy() {
 // attempt to remove the provided path from the venv.
 // path is provided relative to root.
 func (v *Venv) Prune(path string) error {
-	return os.RemoveAll(v.resolveLower(path))
+    if v.isPruned(path) {
+        return nil
+    }
+	return os.RemoveAll(v.resolveMerged(path))
+}
+
+// prints all files rooted at path
+func (v *Venv) Contents(path string) []string {
+    files := make([]string, 0)
+
+    walkFunc := func(path string, info os.FileInfo, err error) error {
+        relative := strings.TrimPrefix(path, v.LibRoot())
+        if relative != path && relative != "" {
+            files = append(files, relative[1:])
+        }
+        return nil
+    }
+
+    filepath.Walk(v.resolveMerged(path), walkFunc)
+
+    return files
+}
+
+func (v *Venv) isPruned(p string) bool {
+    subdirs := strings.Split(p, "/")[:len(p)-1]
+    for i := 0; i < len(subdirs); i++ {
+        fullPath := filepath.Join(subdirs[:i]...)
+        if stats, err := os.Stat(v.resolveUpper(fullPath)); err != nil {
+            // check if dir - otherwise it will be a character special file
+            // marking the dir is removed in the upper layer
+            if !stats.IsDir() {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 // unprune re-inserts path into the venv tree. Only pruned
 // paths will be unpruned, so this is simple and safe to do.
-func (v *Venv) Unprune(path string) error {
+func (v *Venv) Unprune(paths ...string) error {
 	err := v.umount()
 	if err != nil {
 		return err
 	}
 
-	err = os.Remove(v.resolveUpper(path))
-	if err != nil {
-		return err
-	}
+    for _, p := range paths {
+	    err = os.Remove(v.resolveUpper(p))
+        if err != nil {
+            log.Printf("Failed to remove %s: %s\n", v.resolveUpper(p), err)
+        }
+    }
 
 	return v.mount()
 }
 
-func (v *Venv) ReferencePath() string {
-	return v.resolveLower("")
+func (v *Venv) LibRoot() string {
+    return filepath.Join(v.merged, "lib", v.pythonName, "site-packages")
 }
 
-func (v *Venv) resolveLower(path string) string {
+func (v *Venv) resolveMerged(path string) string {
 	return filepath.Join(v.merged, "lib", v.pythonName, "site-packages", path)
 }
 

@@ -115,7 +115,9 @@ func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
         line := s.Text()
         parts := strings.Split(line, "\"")
         if len(parts) > 1 {
-            files[parts[1]] = true
+            if relative := strings.TrimPrefix(parts[1], v.LibRoot()); relative != parts[1] && relative != "" {
+                files[relative[1:]] = true
+            }
         }
     }
 
