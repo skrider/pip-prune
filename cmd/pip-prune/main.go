@@ -30,8 +30,7 @@ Modules and files that can be successfully pruned are then output as a list.
 They can then be deleted as part of your docker build phase.
 
 USAGE: 
-    pip-prune <python-args>
-    pip-prune -requirements requirements.txt main.py
+    pip-prune <options> -- <pip install args> -- <python args>
 `
 
 func printUsage() {
@@ -39,13 +38,11 @@ func printUsage() {
 }
 
 var (
-	requirementsArg string
-	cleanupArg      bool
-	depthArg        int
+	cleanupArg bool
+	depthArg   int
 )
 
 func init() {
-	flag.StringVar(&requirementsArg, "requirements", "requirements.txt", "requirements file to use")
 	flag.BoolVar(&cleanupArg, "cleanup", true, "cleanup temporary venvs")
 	flag.IntVar(&depthArg, "depth", 1, "max depth to search")
 	flag.Usage = printUsage
@@ -55,38 +52,23 @@ func main() {
 	flag.Parse()
 	ignore.InitIgnores()
 
+	args := flag.Args()
+	split := -1
+	for i, a := range args {
+		if a == "--" {
+			split = i
+		}
+	}
+	if split == -1 || split == 0 || split == len(args)-1 {
+		flag.Usage()
+	}
+	pipArgs := args[:split]
+	pythonArgs := args[split+1:]
+
 	// read in the req file and calculate the hash
-	file, err := os.Open(requirementsArg)
+	venvPath, err := initRefVenv(pipArgs)
 	if err != nil {
 		log.Fatal(err)
-	}
-	defer file.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, file); err != nil {
-		log.Fatal(err)
-	}
-
-	venvPath := filepath.Join(os.TempDir(), fmt.Sprintf("pip-prune-venv-ref-%s", hex.EncodeToString(h.Sum(nil))[:16]))
-	if _, err := os.Stat(venvPath); os.IsNotExist(err) {
-		// create the venv
-		fmt.Println("Creating venv at", venvPath)
-		cmd := exec.Command("python3", "-m", "venv", venvPath)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			log.Fatal(err)
-		}
-
-		// install the requirements
-		cmd = exec.Command(filepath.Join(venvPath, "bin", "pip"), "install", "-r", requirementsArg)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		fmt.Println("Using existing venv at", venvPath)
 	}
 
 	vvenv := venv.MakeVenv(venvPath)
@@ -95,58 +77,60 @@ func main() {
 	}
 	fmt.Println(flag.Args())
 
-	refRoot := vvenv.ReferencePath()
+	cmd := command.MakeCommand(pythonArgs)
 
-	fringe := make([]string, 1)
-	fringe[0] = ""
-
-	depth := 0
-
-	cmd := command.MakeCommand(flag.Args())
-
-	for len(fringe) > 0 {
-		path := fringe[0]
-		depth = strings.Count(path, "/")
-		if depth > depthArg {
-			break
-		}
-		absPath := filepath.Join(refRoot, path)
-		fringe = fringe[1:]
-		// attempt to prune the path
-		err = vvenv.Prune(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		ok, err := cmd.Run(vvenv)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if ok {
-			fmt.Println("Pruned path:", path)
-		} else {
-			// step further into the directory tree
-			fmt.Println("Failed to prune:", path)
-			err = vvenv.Unprune(path)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			entries, err := os.ReadDir(absPath)
-			if err != nil {
-				log.Fatal(err)
-			}
-			for _, e := range entries {
-				relPath := filepath.Join(path, e.Name())
-				if e.IsDir() && !ignore.Match(relPath) {
-					fringe = append(fringe, relPath)
-				}
-			}
-		}
-	}
+	cmd.TraceFiles(vvenv)
 
 	ok, err := cmd.Run(vvenv)
 	if !ok {
 		log.Fatal("not ok at termination")
 	}
+}
+
+func initRefVenv(pipArgs []string) (string, error) {
+	h := sha256.New()
+	for _, a := range pipArgs {
+		if a[0] != '-' {
+			if _, err := os.Stat(a); err == nil {
+				file, err := os.Open(a)
+				if err != nil {
+					log.Fatal(err)
+				}
+				io.Copy(h, file)
+				file.Close()
+			} else {
+				r := strings.NewReader(a)
+				io.Copy(h, r)
+			}
+		}
+	}
+
+	hDigest := hex.EncodeToString(h.Sum(nil))[:16]
+
+	venvPath := filepath.Join(os.TempDir(), fmt.Sprintf("pip-prune-ref-%s", hDigest))
+	if _, err := os.Stat(venvPath); os.IsNotExist(err) {
+		// create the venv
+		fmt.Println("Creating venv at", venvPath)
+		cmd := exec.Command("python3", "-m", "venv", venvPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", err
+		}
+
+		// install the requirements
+		args := make([]string, 0)
+		args = append(args, "install")
+		args = append(args, pipArgs...)
+		cmd = exec.Command(filepath.Join(venvPath, "bin", "pip"), args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return "", err
+		}
+	} else {
+		fmt.Println("Using existing venv at", venvPath)
+	}
+
+	return venvPath, nil
 }
