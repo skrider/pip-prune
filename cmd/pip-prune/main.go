@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/skrider/python-image-pruner/pkg/command"
 	"github.com/skrider/python-image-pruner/pkg/ignore"
@@ -101,7 +100,6 @@ func main() {
 		if _, ok := tracedFiles[f]; !ok && !ignore.Match(f) {
 			err := vvenv.Prune(f)
             prunedFiles = append(prunedFiles, f)
-			log.Printf("pruned: %s", f)
 			if err != nil {
 				log.Println(err)
 			}
@@ -129,6 +127,8 @@ func main() {
     for _, p := range prunedFiles {
         fmt.Fprintf(f, "%s\n", p)
     }
+
+	log.Printf("Pruned files written to %s", outputArg)
 }
 
 func initRefVenv(pipArgs []string) (string, error) {

@@ -109,8 +109,21 @@ func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
 
 	err = cmd.Run()
 
+	if err != nil {
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return exitError.ExitCode() == 0, files, nil
+		} else {
+			return false, files, err
+		}
+	}
+
     f, err := os.Open(stracePath)
+    if err != nil {
+        log.Printf("error opening strace file %s for %s: %s", stracePath, c.String(), err)
+        return false, files, err
+    }
     defer f.Close()
+
     s := bufio.NewScanner(f)
     for s.Scan() {
         line := s.Text()
@@ -122,13 +135,6 @@ func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
         }
     }
 
-	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			return exitError.ExitCode() == 0, files, nil
-		} else {
-			return false, files, err
-		}
-	}
 	return true, files, nil
 }
 
@@ -137,7 +143,7 @@ func (c *Command) String() string {
 }
 
 func (c *Command) dumpLogs(i int) {
-    if (i < c.n) {
+    if (i >= c.n) {
         return
     }
 
