@@ -3,5 +3,4 @@
 pip
 setuptools
 _distutils_hack
-numpy.libs
 
