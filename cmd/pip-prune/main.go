@@ -127,13 +127,13 @@ func main() {
 		log.Fatal(err)
 	}
 	defer f.Close()
-    spaceRe := regexp.MustCompile(" ")
+	spaceRe := regexp.MustCompile(" ")
 	for _, p := range prunedFiles {
-        if spaceRe.MatchString(p) {
-		    fmt.Fprintf(f, "'%s'\n", p)
-        } else {
-            fmt.Fprintf(f, "%s\n", p)
-        }
+		if spaceRe.MatchString(p) {
+			fmt.Fprintf(f, "'%s'\n", p)
+		} else {
+			fmt.Fprintf(f, "%s\n", p)
+		}
 	}
 
 	log.Printf("Pruned files written to %s", outputArg)
@@ -185,4 +185,3 @@ func initRefVenv(pipArgs []string) (string, error) {
 
 	return venvPath, nil
 }
-

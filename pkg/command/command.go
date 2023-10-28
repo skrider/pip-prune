@@ -121,8 +121,17 @@ func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
 		line := s.Text()
 		parts := strings.Split(line, "\"")
 		if len(parts) > 1 {
-			if relative := strings.TrimPrefix(parts[1], v.LibRoot()); relative != parts[1] && relative != "" {
-				files[relative[1:]] = true
+			maybe_file := parts[0]
+			if _, err := os.Stat(maybe_file); err == nil {
+				// get rid of potential relative path fragments
+				file, err := filepath.Abs(maybe_file)
+				if err != nil {
+					file = maybe_file
+				}
+				venv_file := strings.TrimPrefix(file, v.LibRoot())
+				if file != venv_file && file != "" {
+					files[venv_file] = true
+				}
 			}
 		}
 	}
