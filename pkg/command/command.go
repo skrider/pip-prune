@@ -123,7 +123,8 @@ func (c *Command) TraceFiles(v *venv.Venv) (bool, map[string]bool, error) {
 		if len(parts) > 1 {
 			maybe_file := parts[0]
 			if _, err := os.Stat(maybe_file); err == nil {
-				// get rid of potential relative path fragments
+				// get rid of potential relative path fragments - C libs are resolved
+                // relative to the absolute path of the file importing them
 				file, err := filepath.Abs(maybe_file)
 				if err != nil {
 					file = maybe_file
